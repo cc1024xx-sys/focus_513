@@ -1,0 +1,1843 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Focus & Flow | 心流之境 v3.4</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(15px); }
+        body { background: #f8fafc; font-family: "PingFang SC", system-ui; color: #1e293b; }
+        .active-p { border-left: 4px solid #3b82f6; background: white !important; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .active-s { background: #eff6ff !important; border: 1.5px solid #60a5fa; }
+        
+        .pri-p0 { color: #ef4444; border-left: 3px solid #ef4444; }
+        .pri-p1 { color: #f59e0b; border-left: 3px solid #f59e0b; }
+        .pri-p2 { color: #3b82f6; border-left: 3px solid #3b82f6; }
+
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+        .calendar-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 10px; border-radius: 8px; cursor: pointer; position: relative; transition: all 0.2s; }
+        .calendar-day:hover { background: #f1f5f9; }
+        .calendar-day.active { background: #3b82f6 !important; color: white; font-weight: bold; transform: scale(1.1); z-index: 10; }
+        .calendar-day.has-task::after { content: ''; position: absolute; bottom: 4px; width: 3px; height: 3px; background: #3b82f6; border-radius: 50%; }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .filter-btn { transition: all 0.3s; border-left: 0px solid transparent; }
+        .filter-btn.active { background: #eff6ff; color: #3b82f6; border-left-width: 4px; border-color: #3b82f6; padding-left: 1.25rem; }
+    
+        .time-slot-input {
+    background: transparent;
+    border: none;
+    font-size: 12px;
+    padding: 4px 0;
+    width: 100%;
+    outline: none;
+    color: #475569;
+}
+.time-slot-input::placeholder { color: #cbd5e1; font-weight: normal; }
+.time-slot-card { transition: all 0.2s; border: 1px solid #f1f5f9; }
+.time-slot-card:focus-within { border-color: #818cf8; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
+
+.time-slot-input:focus {
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 2px 4px rgba(99, 102, 241, 0.1);
+    outline: none;
+}
+input[type="number"]::-webkit-inner-spin-button { display: none; } /* 隐藏数字输入框的小箭头 */
+
+/* DDL 状态颜色增强 */
+.ddl-warning { background: #fff1f2; border-color: #fecdd3; } /* 3天内到期 */
+.ddl-danger { background: #fef2f2; border-color: #fca5a5; animation: ddl-pulse 2s infinite; } /* 今日/逾期到期 */
+
+@keyframes ddl-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.2); }
+    70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+        /* 辅助动画：任务面板展开效果 */
+    .expand-task-panel {
+        animation: slideDown 0.3s ease-out forwards;
+    }
+    @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-10px); max-height: 0; }
+        to { opacity: 1; transform: translateY(0); max-height: 1000px; }
+    }
+
+ /* 强制覆盖可能的显示冲突 */
+#timeDetailModal:not(.hidden) {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* 提高层级，确保在最顶层 */
+#timeDetailModal {
+    z-index: 9999 !important; 
+}
+
+/* 临时移除可能导致渲染失败的模糊效果（排查用） */
+.backdrop-blur-md {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(0, 0, 0, 0.75) !important;
+}   
+
+.milestone-item {
+    position: relative;
+    padding-left: 1.5rem;
+}
+.milestone-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    background: #6366f1;
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+}
+    </style>
+</head>
+
+<body class="p-6">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-center mb-8 bg-white/60 p-6 rounded-[2rem] border border-white shadow-sm">
+            <div>
+                <h1 class="text-2xl font-black text-slate-800 tracking-tight">Focus & <span class="text-blue-500">Flow</span></h1>
+                <p id="clock" class="text-[10px] text-slate-400 font-mono mt-1"></p>
+            </div>
+            <nav class="flex bg-slate-100 p-1 rounded-xl">
+                <button onclick="switchTab('todo')" id="tabTodo" class="px-6 py-2 rounded-lg text-xs font-bold transition-all bg-white shadow-sm">待办中心</button>
+                <button onclick="switchTab('project')" id="tabProject" class="px-6 py-2 rounded-lg text-xs font-bold transition-all text-slate-400">项目库</button>
+            </nav>
+        </header>
+
+        <div class="grid grid-cols-12 gap-8">
+            <aside class="col-span-3 space-y-6">
+                <section id="todoSidebar" class="glass p-6 rounded-[2rem] shadow-sm border border-white">
+                    <div class="flex justify-between items-center mb-4 px-1">
+                        <div class="flex items-center gap-2">
+                            <button onclick="changeMonth(-1)" class="text-slate-400 hover:text-blue-500">＜</button>
+                            <span id="calMonthDisplay" class="text-xs font-black text-slate-700 min-w-[80px] text-center"></span>
+                            <button onclick="changeMonth(1)" class="text-slate-400 hover:text-blue-500">＞</button>
+                        </div>
+                        <button onclick="resetToToday()" class="text-[10px] bg-slate-100 px-2 py-1 rounded-md text-slate-500 hover:bg-slate-200">今日</button>
+                    </div>
+                    <div id="calendarDays" class="calendar-grid mb-6"></div>
+                    <div class="flex gap-2 bg-slate-100 p-1 rounded-xl">
+    <button onclick="changeRange('today')" id="btnToday" class="px-4 py-1.5 text-xs rounded-lg">今日</button>
+    <button onclick="changeRange('week')" id="btnWeek" class="px-4 py-1.5 text-xs rounded-lg">本周</button>
+    <button onclick="changeRange('month')" id="btnMonth" class="px-4 py-1.5 text-xs rounded-lg">本月</button>
+                    </div>
+
+                    <button onclick="clearCurrentTasks()" class="group flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-rose-50 transition-all">
+                    <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-rose-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    <span class="text-[10px] font-bold text-slate-400 group-hover:text-rose-500">清空</span>
+                    </button>
+                    </section> 
+
+                <section id="projectSidebar" class="hidden glass p-6 rounded-[2rem] shadow-sm border border-white min-h-[400px]">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xs font-black text-slate-400 uppercase tracking-widest">项目集</h2>
+                        <button onclick="openAddPModal()" class="bg-slate-800 text-white w-7 h-7 rounded-full flex items-center justify-center hover:scale-110 transition">+</button>
+                    </div>
+                    <div id="pList" class="space-y-3"></div>
+                </section>
+            </aside>
+
+            <main class="col-span-6 space-y-6">
+                <div id="todoMainView" class="space-y-6">
+                    <section class="glass p-8 rounded-[2.5rem] border border-white min-h-[500px]">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 id="todoListTitle" class="text-xl font-bold text-slate-800">今日待办</h3>
+                            <button onclick="openAddTodoModal()" class="bg-blue-500 text-white text-[10px] px-5 py-2 rounded-full font-bold shadow-lg">+ 计划任务</button>
+                        </div>
+                        <div class="mb-8">
+                            <div class="flex items-center gap-2 mb-4 opacity-60"><span class="w-1 h-4 bg-blue-500 rounded-full"></span><h4 class="text-xs font-black uppercase">临时任务</h4></div>
+                            <div id="tempTodoItems" class="space-y-3"></div>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2 mb-4 opacity-60"><span class="w-1 h-4 bg-indigo-500 rounded-full"></span><h4 class="text-xs font-black uppercase">长期/循环任务</h4></div>
+                            <div id="longTodoItems" class="space-y-3"></div>
+                        </div>
+<div id="overdueWrapper" class="mt-8 pt-6 border-t border-slate-100 hidden">
+    <div class="flex items-center justify-between px-4 mb-4">
+        <button onclick="toggleOverdueList()" class="flex items-center gap-2 group flex-1">
+            <span class="text-xs font-black uppercase tracking-widest text-rose-600">已逾期任务回顾</span>
+            <span id="overdueCountTag" class="text-[10px] bg-rose-600 text-white px-2 py-0.5 rounded-full font-bold">0</span>
+            <span id="overdueArrow" class="text-xs text-rose-400 transition-transform duration-300 ml-1">▼</span>
+        </button>
+        <button onclick="clearAllOverdue()" class="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            一键清除
+        </button>
+    </div>
+    <div id="overdueTodoItems" class="hidden space-y-3 animate-in fade-in slide-in-from-top-2">
+        </div>
+</div>
+                    </section>
+                </div>
+
+<div id="projectMainView" class="hidden space-y-3 p-1 rounded-[3rem] transition-all duration-700">
+    <section class="bg-white/70 backdrop-blur-xl border border-white/50 rounded-[2.5rem] p-8 shadow-sm relative z-10">
+        <div class="flex justify-between items-start mb-6">
+            <div class="flex-1">
+                <div class="flex items-center gap-3 group">
+                    <h3 id="pTitle" class="text-2xl font-black text-slate-800 tracking-tight"></h3>
+                    <div class="opacity-0 group-hover:opacity-100 flex gap-2 transition-all">
+                        <button onclick="editP()" class="text-[10px] text-slate-400 hover:text-blue-500">编辑</button>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4 mt-3">
+                    <span id="pGoalDesc" class="text-xs text-slate-500 italic"></span>
+                    <div id="pDDLDisplay" class="flex items-center gap-2 px-3 py-1 bg-white/50 rounded-full text-[10px] border border-slate-100 hidden"></div>
+                </div>
+            </div>
+            <button onclick="addS()" class="bg-slate-800 text-white text-[10px] px-6 py-2.5 rounded-full font-bold hover:scale-105 transition-all shadow-xl shadow-slate-200">+ 拆解子项目</button>
+        </div>
+    </section>
+
+    <div id="sList" class="flex flex-col gap-3 relative z-10">
+        </div>
+
+    <section id="subtaskDetailPanel" class="hidden"></section> 
+</div>
+</main>
+
+            <aside class="col-span-3">
+            <section id="scheduleSection" class="glass rounded-3xl p-6 shadow-sm mb-8">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-xl font-black flex items-center gap-2">
+            <span class="w-2 h-6 bg-indigo-500 rounded-full"></span>
+            每日时间安排记录
+        </h2>
+        <button onclick="generateDailyReport()" class="text-xs bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl font-bold hover:bg-indigo-100 transition-all">
+            ✨ 生成今日简报
+        </button>
+    </div>
+
+    <div id="timelineGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        </div>
+
+    <div id="reportArea" class="hidden">
+        <div class="bg-indigo-50/50 rounded-2xl p-4 border border-indigo-100">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-bold text-indigo-600 uppercase tracking-wider">今日复盘总结</span>
+                <button onclick="copyReport()" class="text-[10px] text-indigo-400 hover:text-indigo-600">复制内容</button>
+            </div>
+            <p id="reportContent" class="text-sm leading-relaxed text-slate-600 italic">
+                点击上方按钮生成日报...
+            </p>
+        </div>
+    </div>
+</section>
+            </aside>
+        </div>
+    </div>
+    </div>
+
+<div id="todoModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl">
+        <h2 id="modalTitle" class="text-xl font-black mb-6">设定计划事项</h2>
+        
+        <div class="flex bg-slate-100 p-1 rounded-xl mb-6">
+            <button onclick="setTodoType('temp')" id="typeTempBtn" class="flex-1 py-2 rounded-lg text-[10px] font-bold transition-all bg-white shadow-sm text-blue-600">临时任务</button>
+            <button onclick="setTodoType('long')" id="typeLongBtn" class="flex-1 py-2 rounded-lg text-[10px] font-bold transition-all text-slate-400">长期计划</button>
+        </div>
+
+        <div class="space-y-5">
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase ml-1">任务描述</label>
+                <input id="todoContent" type="text" placeholder="例如：背诵日语单词" class="w-full bg-slate-50 border-none rounded-xl p-4 text-sm focus:ring-2 focus:ring-blue-500 mt-1">
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase ml-1">开始于</label>
+                    <input id="todoStartDate" type="date" class="w-full bg-slate-50 border-none rounded-xl p-4 text-xs mt-1">
+                        <p class="text-[8px] text-slate-400 mt-1">可不选，仅作为记录</p> 
+                </div>
+                 <div>
+                    <label class="text-[10px] font-black text-rose-500 uppercase ml-1">截止日期 (DDL)</label>
+                    <input id="todoDeadline" type="date" class="w-full bg-rose-50 border-none rounded-xl p-4 text-xs mt-1">
+                    <p class="text-[8px] text-slate-400 mt-1">将在日历重点标注</p>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase ml-1">重要程度</label>
+                    <select id="todoPri" class="w-full bg-slate-50 border-none rounded-xl p-4 text-xs mt-1">
+                        <option value="p0">P0 - 紧急且重要</option>
+                        <option value="p1">P1 - 核心目标</option>
+                        <option value="p2" selected>P2 - 常规事项</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="longTermFields" class="hidden space-y-4 pt-4 border-t border-slate-100">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] font-black text-blue-500 uppercase ml-1">循环周期</label>
+                        <input id="todoCycle" type="number" placeholder="1" min="1" class="w-full bg-blue-50/50 border-none rounded-xl p-4 text-sm mt-1">
+                        <p class="text-[9px] text-slate-400 mt-1 ml-1 leading-tight">每隔 X 天自动生成一次任务</p>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">结束日期</label>
+                        <input id="todoEndDate" type="date" class="w-full bg-slate-50 border-none rounded-xl p-4 text-xs mt-1">
+                        <p class="text-[9px] text-slate-400 mt-1 ml-1 leading-tight">选填，到期后不再提醒</p>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase ml-1">关联至子项目</label>
+                    <select id="todoRelateS" class="w-full bg-slate-50 border-none rounded-xl p-4 text-xs mt-1"></select>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex gap-3 mt-8">
+            <button onclick="saveTodo()" class="flex-[2] bg-slate-800 text-white py-4 rounded-2xl font-bold hover:bg-blue-600 transition-all shadow-lg">同步至日历</button>
+            <button onclick="closeTodoModal()" class="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl font-bold">取消</button>
+        </div>
+    </div>
+</div>
+
+    <div id="pModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl">
+        <div class="mb-6">
+            <h2 id="pModalTitle" class="text-xl font-black text-slate-800">启动新项目</h2>
+            <p id="pModalSubTitle" class="text-[10px] text-slate-400 uppercase tracking-widest mt-1 font-bold">Start a New Journey</p>
+        </div>
+
+        <div class="space-y-5">
+            <div>
+                <label class="text-[10px] font-black text-blue-500 uppercase ml-1 flex items-center gap-1">
+                    <span>项目名称</span>
+                    <span class="text-rose-400">*</span>
+                </label>
+                <input id="pNameInput" type="text" placeholder="例如：考取日语 N2 证书" 
+                    class="w-full bg-slate-50 border-none rounded-xl p-4 text-sm focus:ring-2 focus:ring-blue-500 mt-1 transition-all">
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase ml-1">阶段性目标 (可选)</label>
+                <input id="pGoalInput" type="text" placeholder="例如：掌握 2000 个核心词汇" 
+                    class="w-full bg-slate-50 border-none rounded-xl p-4 text-sm focus:ring-2 focus:ring-blue-500 mt-1">
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase ml-1">预期完成日期 (可选)</label>
+                <input id="pDDLInput" type="date" 
+                    class="w-full bg-slate-50 border-none rounded-xl p-4 text-xs focus:ring-2 focus:ring-blue-500 mt-1">
+            </div>
+        </div>
+
+    <div class="flex gap-3 mt-8">
+<button id="pModalConfirmBtn" class="flex-[2] bg-slate-800 text-white py-4 rounded-2xl font-bold hover:bg-blue-600 transition-all shadow-lg">
+    确认保存
+</button>
+            <button onclick="closePModal()" class="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-colors">
+                取消
+            </button>
+        </div>
+    </div>
+</div>
+
+    <script>
+        // 修改变量初始化部分
+// schedules[日期][小时] 现在是一个数组：[{text: "任务名", minutes: 30}, ...]
+let schedules = JSON.parse(localStorage.getItem('focus_schedules') || '{}');
+let isMorningExpanded = false; // 默认折叠凌晨时段
+let db = JSON.parse(localStorage.getItem('ff_v3_db')) || [];
+let todos = JSON.parse(localStorage.getItem('ff_v3_todos')) || [];
+// 在 script 标签顶部定义
+let currentEditId = null; 
+let currentCreateType = 'temp'; // 记录当前弹窗是临时还是长期
+
+// 新增：从本地读取上次的索引，注意处理 null 的字符串情况
+let savedP = localStorage.getItem('ff_v3_curP');
+let savedS = localStorage.getItem('ff_v3_curS');
+let curP = (savedP !== null && savedP !== "null") ? parseInt(savedP) : null;
+let curS = (savedS !== null && savedS !== "null") ? parseInt(savedS) : null;
+        let selectedDate = new Date().toISOString().split('T')[0];
+        let calViewDate = new Date();
+        let rangeFilter = 'today';
+
+
+
+function saveDb() {
+    localStorage.setItem('ff_v3_db', JSON.stringify(db));
+    localStorage.setItem('ff_v3_todos', JSON.stringify(todos));
+    // 新增：保存当前操作的索引状态
+    localStorage.setItem('ff_v3_curP', curP);
+    localStorage.setItem('ff_v3_curS', curS);
+    renderAll(); // renderAll 会自动调用更新后的 renderSubtasks
+}
+
+
+// 新增：强力初始化函数，确保数据结构 100% 正确
+function ensureScheduleFormat(date) {
+    // 如果没有该日期数据，或者数据不是数组（是旧版的字符串），或者长度不是24
+    if (!schedules[date] || !Array.isArray(schedules[date]) || schedules[date].length !== 24) {
+        schedules[date] = Array.from({ length: 24 }, () => []); 
+    }
+}
+
+function renderSchedule() {
+    const grid = document.getElementById('timelineGrid');
+    if (!grid) return;
+
+    ensureScheduleFormat(selectedDate); // 渲染前先格式化数据
+    const dayData = schedules[selectedDate];
+
+    const createHourCard = (hour) => {
+    const tasks = dayData[hour] || [];
+    const summaryHtml = tasks.map(t => `
+        <div class="text-[10px] text-slate-500 truncate mb-1 flex items-center gap-1">
+            <span class="w-1 h-1 bg-indigo-300 rounded-full"></span>
+            ${t.text || '新任务'} (${t.minutes || 0}m)
+        </div>
+    `).join('');
+
+    return `
+        <div onclick="console.log('点击了时段:', ${hour}); openTimeDetail(${hour})" 
+             class="time-slot-card bg-slate-50/50 p-3 rounded-2xl flex flex-col min-h-[80px] border-2 border-transparent hover:border-indigo-400 hover:bg-white cursor-pointer transition-all active:scale-95">
+            <div class="flex justify-between items-center mb-1 pointer-events-none">
+                <span class="text-[10px] font-mono font-bold text-slate-400">${String(hour).padStart(2, '0')}:00</span>
+                <span class="text-[9px] font-bold text-indigo-500 bg-indigo-50 px-1.5 rounded">${tasks.length || 0}</span>
+            </div>
+            <div class="flex-1 pointer-events-none">${summaryHtml || '<div class="text-[10px] text-slate-300 italic">点击记事...</div>'}</div>
+        </div>
+    `;
+};
+
+    // 凌晨时段 (0-7点)
+    const morningSlotsHtml = Array.from({length: 8}, (_, i) => createHourCard(i)).join('');
+    
+    // 常规时段 (8-23点)
+    const regularSlotsHtml = Array.from({length: 16}, (_, i) => createHourCard(i + 8)).join('');
+
+    grid.innerHTML = `
+        <div class="col-span-full mb-2">
+            <button onclick="toggleMorning()" class="flex items-center gap-2 text-[11px] font-bold text-slate-400 hover:text-indigo-500">
+                <span class="w-4 h-4 flex items-center justify-center rounded bg-slate-100">${isMorningExpanded ? '−' : '+'}</span>
+                凌晨时段 (00:00 - 08:00)
+            </button>
+        </div>
+        <div class="${isMorningExpanded ? 'grid' : 'hidden'} grid-cols-2 md:grid-cols-4 gap-3 col-span-full mb-4 border-b border-dashed border-slate-200 pb-4">
+            ${morningSlotsHtml}
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 col-span-full">
+            ${regularSlotsHtml}
+        </div>
+    `;
+}
+
+// 切换凌晨展示状态
+function toggleMorning() {
+    isMorningExpanded = !isMorningExpanded;
+    renderSchedule(); // 重新渲染以应用 hidden 类
+}
+
+// 更新数据并保存
+function updateSchedule(hour, value) {
+    if (!schedules[selectedDate]) {
+        schedules[selectedDate] = Array(24).fill("");
+    }
+    schedules[selectedDate][hour] = value;
+    localStorage.setItem('focus_schedules', JSON.stringify(schedules));
+}
+
+// 添加一条新任务
+function addSlotTask(hour) {
+    schedules[selectedDate][hour].push({ text: "", minutes: "" });
+    saveSchedules();
+    renderSchedule();
+}
+
+// 修改特定任务的内容或时间
+function updateScheduleTask(hour, index, field, value) {
+    schedules[selectedDate][hour][index][field] = value;
+    saveSchedules();
+}
+
+// 删除特定任务
+function removeSlotTask(hour, index) {
+    schedules[selectedDate][hour].splice(index, 1);
+    saveSchedules();
+    renderSchedule();
+}
+
+function saveSchedules() {
+    localStorage.setItem('focus_schedules', JSON.stringify(schedules));
+}
+
+// 自动生成日报
+function generateDailyReport() {
+    const dayData = schedules[selectedDate];
+    if (!dayData) return alert("今日暂无记录");
+
+    let reportLines = [];
+    let totalMinutes = 0;
+
+    dayData.forEach((tasks, hour) => {
+        if (tasks.length > 0) {
+            tasks.forEach(t => {
+                if (t.text.trim()) {
+                    const mins = parseInt(t.minutes) || 0;
+                    reportLines.push(`${String(hour).padStart(2, '0')}:00 ➔ 【${t.text}】 (${mins}分钟)`);
+                    totalMinutes += mins;
+                }
+            });
+        }
+    });
+
+    if (reportLines.length === 0) return alert("请先填写具体任务内容");
+
+    const reportArea = document.getElementById('reportArea');
+    const contentEl = document.getElementById('reportContent');
+    
+    contentEl.innerHTML = `
+        <div class="font-bold border-b border-indigo-100 pb-2 mb-2">📅 ${selectedDate} 深度回溯</div>
+        <div class="space-y-1 mb-3">${reportLines.join('<br>')}</div>
+        <div class="pt-2 border-t border-dashed border-indigo-200 text-indigo-600 font-bold">
+            📊 今日专注总时长：${Math.floor(totalMinutes / 60)}小时 ${totalMinutes % 60}分钟
+        </div>
+    `;
+    
+    reportArea.classList.remove('hidden');
+}
+
+// 复制报告
+function copyReport() {
+    const text = document.getElementById('reportContent').innerText;
+    navigator.clipboard.writeText(text).then(() => alert("日报已复制到剪贴板"));
+}
+
+/**
+ * 一键清除所有逾期任务
+ * 逻辑：删除所有 startDate 早于今天且 completions 中不包含该日期的任务实例
+ */
+function clearAllOverdue() {
+    const todayStr = getTodayStr();
+    
+    // 获取当前所有逾期任务的 ID 集合
+    const overdueIds = new Set();
+    todos.forEach(t => {
+        // 扫描过去 7 天
+        for (let i = 1; i <= 7; i++) {
+            const pastDate = new Date(new Date().getTime() - i * 86400000).toISOString().split('T')[0];
+            if (isTodoActiveOnDate(t, pastDate) && !t.completions.includes(pastDate)) {
+                overdueIds.add(t.id);
+            }
+        }
+    });
+
+    if (overdueIds.size === 0) return;
+
+    if (confirm(`确定要清除这 ${overdueIds.size} 项逾期任务吗？`)) {
+        // 过滤掉存在于逾期集合中的任务
+        // 注意：如果是长期任务，这会删除整个任务。如果只想清除逾期状态而保留后续循环，需更复杂的逻辑。
+        // 目前按用户直觉处理：从待办列表中彻底移除。
+        todos = todos.filter(t => !overdueIds.has(t.id));
+        
+        saveDb(); // 保存并触发 renderAll
+        alert("逾期任务已清理完毕");
+    }
+}
+
+/**
+ * 清空当前视图下的待办任务
+ */
+function clearCurrentTasks() {
+    const todayStr = getTodayStr();
+    
+    // 1. 筛选出当前视图中可见的任务
+    const tasksInView = todos.filter(t => {
+        if (rangeFilter === 'today') {
+            return isTodoActiveOnDate(t, selectedDate);
+        } else if (rangeFilter === 'week') {
+            // 周视图逻辑：计算当前选中日期所在周的周一至周日
+            const d = new Date(selectedDate);
+            const day = d.getDay() || 7;
+            const monday = new Date(d.getTime() - (day - 1) * 86400000);
+            const sunday = new Date(monday.getTime() + 6 * 86400000);
+            const tStart = new Date(t.startDate);
+            return tStart >= monday && tStart <= sunday;
+        }
+        return true; // 'all' 视图下显示所有
+    });
+
+    if (tasksInView.length === 0) return;
+
+    const viewName = rangeFilter === 'today' ? "今日" : (rangeFilter === 'week' ? "本周" : "全部");
+    
+    // 2. 确认删除
+    if (confirm(`确定要清空${viewName}视图下的 ${tasksInView.length} 项待办吗？\n(操作不可撤销)`)) {
+        const idsToRemove = new Set(tasksInView.map(t => t.id));
+        
+        // 3. 过滤掉这些任务并保存
+        todos = todos.filter(t => !idsToRemove.has(t.id));
+        
+        saveDb(); // 保存数据并触发 renderAll() 自动重绘
+    }
+}
+
+
+/**
+ * 计算今日待办完全清空的连续天数 (Streak)
+ */
+function calculateStreak() {
+    let streak = 0;
+    let curr = new Date();
+    
+    // 限制回溯上限为 365 天
+    for (let i = 0; i < 365; i++) {
+        const y = curr.getFullYear();
+        const m = String(curr.getMonth() + 1).padStart(2, '0');
+        const d = String(curr.getDate()).padStart(2, '0');
+        const dStr = `${y}-${m}-${d}`;
+        
+        // 获取该日期下所有的活跃任务
+        const dayTasks = todos.filter(t => isTodoActiveOnDate(t, dStr));
+        
+        // 容错逻辑：如果那天没有任务，视作“维持现状”，继续回溯
+        if (dayTasks.length === 0) {
+            curr.setDate(curr.getDate() - 1);
+            continue;
+        }
+        
+        // 检查是否所有任务都完成了
+        const allDone = dayTasks.every(t => t.completions.includes(dStr));
+        
+        if (allDone) {
+            streak++;
+            curr.setDate(curr.getDate() - 1);
+        } else {
+            // 如果是今天还没做完，不增加计数，但也不中断，继续查昨天
+            if (dStr === getTodayStr()) {
+                curr.setDate(curr.getDate() - 1);
+                continue;
+            }
+            // 只要有一天没清空，计数中断
+            break;
+        }
+    }
+    return streak;
+}
+
+/**
+ * 渲染已完成子项目的成就勋章
+ */
+function renderMilestoneBadges() {
+    // 获取所有已完成的子项目
+    // 判定标准：该子项目下至少有一个任务，且所有任务在历史中都有完成记录
+    const completedSubtasks = [];
+    
+    db.forEach(project => {
+        project.subtasks.forEach(sub => {
+            const relatedTasks = todos.filter(t => String(t.relatedSubtaskId) === String(sub.id));
+            // 只有当有任务且全部完成过时，才计入成就
+            if (relatedTasks.length > 0 && relatedTasks.every(t => t.completions.length > 0)) {
+                completedSubtasks.push(sub);
+            }
+        });
+    });
+
+    if (completedSubtasks.length === 0) return "";
+
+    const badgeHtml = completedSubtasks.map(s => `
+        <div class="flex items-center gap-3 p-3 mb-2 rounded-2xl bg-white/50 border border-white/80 group hover:bg-white hover:shadow-sm transition-all animate-in fade-in slide-in-from-right-4">
+            <div class="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 shadow-inner">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 1L14.39 8.26H22L15.81 12.75L18.19 20L12 15.52L5.81 20L8.19 12.75L2 8.26H9.61L12 1Z"/>
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="text-[11px] font-black text-slate-700 truncate">${s.name}</div>
+                <div class="text-[9px] text-slate-400 font-medium">达成里程碑</div>
+            </div>
+        </div>
+    `).join('');
+
+    return `
+        <div class="mt-8">
+            <div class="px-2 flex items-center justify-between mb-4">
+                <span class="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">已获成就勋章</span>
+                <span class="text-[9px] text-slate-300 font-mono">${completedSubtasks.length}</span>
+            </div>
+            <div class="max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+                ${badgeHtml}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * 渲染成长概览模块
+ */
+function renderGrowthOverview() {
+    const wall = document.getElementById('milestoneWall');
+    if (!wall) return;
+    
+    // 1. 获取连续天数 HTML
+    const streak = calculateStreak();
+    const streakHtml = `
+        <div class="mb-2 p-6 rounded-[2.2rem] bg-gradient-to-br from-orange-50 to-rose-50 border border-orange-100 relative overflow-hidden group">
+            <div class="absolute -right-2 -top-2 text-orange-200/20 group-hover:scale-110 transition-transform duration-700">
+                <svg class="w-20 h-20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 23a7.5 7.5 0 0 1-5.138-12.963C8.204 8.774 11.5 2.451 12 2c.5 4.541 3.796 6.774 5.138 8.037A7.5 7.5 0 0 1 12 23z"/></svg>
+            </div>
+            <div class="relative z-10">
+                <div class="text-[10px] font-black text-orange-400 uppercase tracking-[0.2em] mb-1">Focus Streak</div>
+                <div class="flex items-baseline gap-2">
+                    <span class="text-4xl font-black text-slate-800">${streak}</span>
+                    <span class="text-xs font-bold text-slate-500">连续天数</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // 2. 获取勋章墙 HTML
+    const badgesHtml = renderMilestoneBadges();
+    
+    // 3. 组合渲染
+    wall.innerHTML = streakHtml + badgesHtml;
+}
+
+// --- 工具：计算 DDL 剩余天数 ---
+function getDDLCountdown(ddlDateStr) {
+    if (!ddlDateStr) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const ddl = new Date(ddlDateStr);
+    ddl.setHours(0, 0, 0, 0);
+    
+    const diffTime = ddl - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return { text: `已逾期 ${Math.abs(diffDays)} 天`, color: 'text-slate-400' };
+    if (diffDays === 0) return { text: '今天到期', color: 'text-rose-600 font-black' };
+    if (diffDays <= 3) return { text: `仅剩 ${diffDays} 天`, color: 'text-rose-500 font-bold' };
+    return { text: `还剩 ${diffDays} 天`, color: 'text-blue-500' };
+}
+
+// --- 逻辑：日期匹配（修复版） ---
+function isTodoActiveOnDate(todo, targetDateStr) {
+    // 逻辑 A：如果这一天是该任务的截止日期 (DDL)，必须显示
+    if (todo.deadline === targetDateStr) return true;
+
+    // 逻辑 B：如果任务没有开始日期，且上面已经排除了 DDL 情况，则不显示
+    if (!todo.startDate) return false;
+
+    const target = new Date(targetDateStr); target.setHours(0,0,0,0);
+    const start = new Date(todo.startDate); start.setHours(0,0,0,0);
+    
+    if (target < start) return false;
+    if (todo.endDate) {
+        const end = new Date(todo.endDate); end.setHours(0,0,0,0);
+        if (target > end) return false;
+    }
+    
+    // 处理周期逻辑
+    if (!todo.cycle || todo.cycle == 0) return todo.startDate === targetDateStr;
+    const diffDays = Math.round((target - start) / (1000 * 60 * 60 * 24));
+    return diffDays % parseInt(todo.cycle) === 0;
+}
+
+        // --- 界面切换 ---
+        function switchTab(type) {
+            const isTodo = type === 'todo';
+            document.getElementById('tabTodo').className = isTodo ? "px-6 py-2 rounded-lg text-xs font-bold transition-all bg-white shadow-sm" : "px-6 py-2 rounded-lg text-xs font-bold transition-all text-slate-400";
+            document.getElementById('tabProject').className = !isTodo ? "px-6 py-2 rounded-lg text-xs font-bold transition-all bg-white shadow-sm" : "px-6 py-2 rounded-lg text-xs font-bold transition-all text-slate-400";
+            document.getElementById('todoSidebar').classList.toggle('hidden', !isTodo);
+            document.getElementById('projectSidebar').classList.toggle('hidden', isTodo);
+            document.getElementById('todoMainView').classList.toggle('hidden', !isTodo);
+            document.getElementById('projectMainView').classList.toggle('hidden', isTodo || curP === null);
+        
+           // 修改：切换到 project 时，如果 curP 不为 null，则显示主视图
+    const projectMainView = document.getElementById('projectMainView');
+    if (!isTodo && curP !== null) {
+        projectMainView.classList.remove('hidden');
+        // 恢复上次的项目标题和目标
+        document.getElementById('pTitle').innerText = db[curP].name;
+        document.getElementById('pGoalDesc').innerText = db[curP].goal || '专注当下';
+        updatePDDLDisplay(db[curP].ddl);
+        renderSubtasks(); // 渲染子项目（包含展开状态）
+    } else {
+        projectMainView.classList.add('hidden');
+    } 
+        
+        }
+// --- 核心修复：项目/子项目编辑弹窗逻辑 ---
+function openEditModal(type, index) {
+    const isProject = type === 'project';
+    const isSubtask = type === 'subtask';
+    const isTodo = type === 'todo';
+
+    editType = type;
+    editIndex = index;
+
+if (isTodo) {
+        const t = todos[index];
+        // 待办使用专门的任务弹窗
+        openAddTodoModal(); 
+        document.getElementById('todoContent').value = t.content;
+        document.getElementById('todoStartDate').value = t.startDate;
+        document.getElementById('todoPri').value = t.pri;
+        if (t.cycle > 0) {
+            setTodoType('long');
+            document.getElementById('todoCycle').value = t.cycle;
+            document.getElementById('todoEndDate').value = t.endDate || '';
+            document.getElementById('todoRelateS').value = t.relatedSubtaskId || '';
+        } else {
+            setTodoType('temp');
+        }
+        // 修改保存逻辑：点击保存时更新现有任务而非新增
+        document.querySelector('#todoModal button[onclick="saveTodo()"]').onclick = () => updateExistingTodo(index);
+        return;
+    }
+    
+const data = isProject ? db[index] : db[curP].subtasks[index];
+    document.getElementById('pModalTitle').innerText = isProject ? "编辑主项目" : "编辑子项目";
+    document.getElementById('pNameInput').value = data.name;
+    document.getElementById('pGoalInput').value = data.goal || "";
+    document.getElementById('pDDLInput').value = data.ddl || "";
+    document.getElementById('pModalConfirmBtn').onclick = () => {
+        data.name = document.getElementById('pNameInput').value.trim();
+        data.goal = document.getElementById('pGoalInput').value.trim();
+        data.ddl = document.getElementById('pDDLInput').value;
+        saveDb();
+        closePModal();
+    };
+    
+    document.getElementById('pModal').classList.remove('hidden');
+}
+
+// 补充：更新现有待办的逻辑
+function updateExistingTodo(index) {
+    const t = todos[index];
+    t.content = document.getElementById('todoContent').value;
+    t.startDate = document.getElementById('todoStartDate').value;
+    t.pri = document.getElementById('todoPri').value;
+    if (currentCreateType === 'long') {
+        t.cycle = document.getElementById('todoCycle').value || 1;
+        t.endDate = document.getElementById('todoEndDate').value;
+        t.relatedSubtaskId = document.getElementById('todoRelateS').value;
+    } else {
+        t.cycle = 0;
+    }
+    saveDb();
+    closeTodoModal();
+    // 恢复默认的保存按钮逻辑
+    document.querySelector('#todoModal button[onclick="updateExistingTodo(' + index + ')"]').onclick = saveTodo;
+}
+
+// --- 优化：通过索引编辑项目 ---
+function editPByIndex(index) {
+    openEditModal('project', index);
+}
+
+// --- 优化：通过索引删除项目 ---
+function deletePByIndex(index) {
+    const projectName = db[index].name;
+    if (confirm(`确定要彻底删除项目「${projectName}」吗？\n这将同时删除其下所有的子项目及关联记录。`)) {
+        
+        // 逻辑处理
+        db.splice(index, 1);
+        
+        // 如果删除的是当前选中的项目
+        if (curP === index) {
+            curP = null;
+            curS = null;
+            switchTab('todo'); 
+        } else if (curP > index) {
+            // 如果删除的是当前选中项目之前的项目，索引需要减1保持指向一致
+            curP--;
+        }
+        
+        saveDb();
+    }
+}
+        // --- 核心优化：删除当前主项目 ---
+function deleteCurrentProject() {
+    if (curP === null) deletePByIndex(curP);
+    
+    const projectName = db[curP].name;
+    
+    // 二次确认，防止误删
+    if (confirm(`确定要彻底删除项目「${projectName}」吗？\n这将同时删除其下所有的子项目及关联记录。`)) {
+        
+        // 1. 从数据库中移除
+        db.splice(curP, 1);
+        
+        // 2. 清理相关的全局变量
+        curP = null;
+        curS = null;
+        
+        // 3. 执行持久化保存
+        saveDb();
+        
+        // 4. 视觉反馈与自动跳转
+        alert("项目已成功移除");
+        switchTab('todo'); // 删除后自动切回待办中心
+    }
+}   
+
+// --- 优化：待办中心渲染逻辑（支持日期动态切换与显示） ---
+let isOverdueExpanded = false; // 全局变量，记录折叠状态
+
+function renderTodoItems() {
+    const tempCont = document.getElementById('tempTodoItems');
+    const longCont = document.getElementById('longTodoItems');
+    const overdueCont = document.getElementById('overdueTodoItems');
+    const overdueWrapper = document.getElementById('overdueWrapper');
+    const overdueCountTag = document.getElementById('overdueCountTag');
+    const titleEl = document.getElementById('todoListTitle');
+    
+    // 初始化容器
+    tempCont.innerHTML = ''; 
+    longCont.innerHTML = ''; 
+    overdueCont.innerHTML = '';
+    const todayStr = getTodayStr();
+    
+    // 1. 动态标题与范围计算
+    let dateRange = [selectedDate]; 
+    if (rangeFilter === 'week') {
+        const d = new Date(selectedDate);
+        const day = d.getDay() || 7;
+        const monday = new Date(d.getTime() - (day - 1) * 86400000);
+        dateRange = Array.from({length: 7}, (_, i) => {
+            const date = new Date(monday.getTime() + i * 86400000);
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        });
+        titleEl.innerText = "未来一周计划";
+    } else if (rangeFilter === 'month') {
+        const y = calViewDate.getFullYear();
+        const m = calViewDate.getMonth();
+        const daysInMonth = new Date(y, m + 1, 0).getDate();
+        dateRange = Array.from({length: daysInMonth}, (_, i) => {
+            return `${y}-${String(m + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+        });
+        titleEl.innerText = `${y}年${m+1}月 全月计划`;
+    } else {
+        titleEl.innerText = (selectedDate === todayStr) ? "今日待办事项" : `${selectedDate} 待办事项`;
+    }
+
+    // 2. 收集与去重 (解决“创建出现2条”的Bug)
+    const viewTasksMap = new Map();
+    dateRange.forEach(dStr => {
+        todos.forEach(t => {
+            const isActive = isTodoActiveOnDate(t, dStr);
+            const isDDLDay = t.deadline === dStr;
+
+            if (isActive || isDDLDay) {
+                const existing = viewTasksMap.get(t.id);
+                // 只有真正的“今日截止”才触发红色高亮
+                const isRealTodayDDL = isDDLDay && (dStr === todayStr);
+
+                if (!existing || isRealTodayDDL) {
+                    viewTasksMap.set(t.id, {
+                        ...t,
+                        displayDate: dStr,
+                        isDDLDay: isRealTodayDDL || (existing ? existing.isDDLDay : false)
+                    });
+                }
+            }
+        });
+    });
+
+    // 3. 排序逻辑 (DDL近到远 > 无DDL > 优先级)
+    Array.from(viewTasksMap.values())
+        .sort((a, b) => {
+            const aDone = a.completions.includes(a.displayDate) ? 1 : 0;
+            const bDone = b.completions.includes(b.displayDate) ? 1 : 0;
+            if (aDone !== bDone) return aDone - bDone;
+
+            if (a.deadline && b.deadline) {
+                if (a.deadline !== b.deadline) return a.deadline.localeCompare(b.deadline);
+            } else if (a.deadline && !b.deadline) return -1;
+            else if (!a.deadline && b.deadline) return 1;
+
+            return a.pri.localeCompare(b.pri);
+        })
+        .forEach(t => {
+            const html = generateTodoHtml(t, false);
+            if (t.cycle > 0) longCont.insertAdjacentHTML('beforeend', html);
+            else tempCont.insertAdjacentHTML('beforeend', html);
+        });
+
+    // 4. 逾期任务扫描
+    let overdueTasks = [];
+    todos.forEach(t => {
+        for (let i = 1; i <= 7; i++) {
+            const pastDate = new Date(new Date().getTime() - i * 86400000).toISOString().split('T')[0];
+            if (isTodoActiveOnDate(t, pastDate) && !t.completions.includes(pastDate)) {
+                overdueTasks.push({ ...t, displayDate: pastDate });
+            }
+        }
+    });
+
+    if (overdueTasks.length > 0) {
+        overdueWrapper.classList.remove('hidden');
+        const uniqueOverdue = Array.from(new Set(overdueTasks.map(a => a.id)))
+            .map(id => overdueTasks.find(a => a.id === id));
+        overdueCountTag.innerText = uniqueOverdue.length;
+        uniqueOverdue.forEach(t => {
+            overdueCont.insertAdjacentHTML('beforeend', generateTodoHtml(t, true));
+        });
+    } else {
+        overdueWrapper.classList.add('hidden');
+    }
+
+    if (typeof applyOverdueState === 'function') applyOverdueState();
+}
+
+// 辅助函数：切换范围时触发
+function changeRange(range) {
+    rangeFilter = range;
+    // 更新按钮样式
+    ['btnToday', 'btnWeek', 'btnMonth'].forEach(id => {
+        document.getElementById(id).className = id.includes(range.charAt(0).toUpperCase() + range.slice(1)) 
+            ? "px-4 py-1.5 text-xs rounded-lg bg-white shadow-sm font-bold text-blue-600" 
+            : "px-4 py-1.5 text-xs rounded-lg text-slate-500 hover:bg-white/50";
+    });
+    renderAll();
+}
+
+function generateTodoHtml(t, isOverduePanel = false) {
+    const isDone = t.completions.includes(t.displayDate);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const ddlDate = t.deadline ? new Date(t.deadline) : null;
+    let ddlDiff = ddlDate ? Math.ceil((ddlDate - today) / (1000 * 60 * 60 * 24)) : null;
+
+    // 只有“今天截止且未完成”或“逾期面板”才显示高亮红色
+    const isUrgent = (t.isDDLDay && !isDone) || (isOverduePanel && !isDone);
+    const styleClass = isDone ? 'opacity-50 bg-slate-50' : (isUrgent ? 'bg-rose-50 border-rose-200' : 'bg-white shadow-sm');
+
+    return `
+        <div class="p-4 rounded-2xl border flex justify-between items-center transition-all ${styleClass} border-l-4 pri-${t.pri} cursor-pointer hover:shadow-md" 
+             onclick="editTodo(${t.id})">
+            <div class="flex items-center gap-4">
+                <input type="checkbox" 
+                       onclick="event.stopPropagation()" 
+                       ${isDone ? 'checked' : ''} 
+                       onchange="toggleTodo(${t.id}, '${t.displayDate}')" 
+                       class="w-5 h-5 rounded-full cursor-pointer">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-bold ${isDone ? 'line-through' : ''}">${t.content}</span>
+                        ${isUrgent ? '<span class="text-[8px] bg-rose-600 text-white px-1.5 py-0.5 rounded-md font-black animate-pulse">今日截止</span>' : ''}
+                        ${!isDone && ddlDiff > 0 && ddlDiff <= 3 ? `<span class="text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded-md font-black">剩 ${ddlDiff} 天</span>` : ''}
+                    </div>
+                    <div class="text-[9px] mt-1 font-mono opacity-60 text-slate-400">
+                        ${t.deadline ? `📅 截止: ${t.deadline}` : ''}
+                    </div>
+                </div>
+            </div>
+            <button onclick="event.stopPropagation(); delTodo(${t.id})" 
+                    class="text-slate-300 hover:text-rose-500 p-2">×</button>
+        </div>`;
+}
+
+function editTodo(id) {
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+
+    currentEditId = id; // 记录当前正在编辑的 ID
+    currentCreateType = t.cycle > 0 ? 'long' : 'temp'; // 判断任务类型
+
+    // 1. 打开弹窗
+    document.getElementById('todoModal').classList.remove('hidden');
+    document.getElementById('modalTitle').innerText = "编辑计划事项";
+
+    // 2. 回填基础数据
+    document.getElementById('todoContent').value = t.content;
+    document.getElementById('todoStartDate').value = t.startDate || '';
+    document.getElementById('todoDeadline').value = t.deadline || '';
+    document.getElementById('todoPri').value = t.pri;
+
+    // 3. 切换弹窗 UI 状态并回填长期任务字段
+    const longFields = document.getElementById('longTermFields');
+    if (t.cycle > 0) {
+        setTodoType('long'); // 切换到长期模式 UI
+        longFields.classList.remove('hidden');
+        document.getElementById('todoEndDate').value = t.endDate || '';
+        document.getElementById('todoCycle').value = t.cycle;
+    } else {
+        setTodoType('temp'); // 切换到临时模式 UI
+        longFields.classList.add('hidden');
+    }
+}
+
+
+// 修改关闭弹窗函数
+function closeTodoModal() {
+    document.getElementById('todoModal').classList.add('hidden');
+    currentEditId = null; // 退出编辑模式
+    // 清空输入框内容
+    document.getElementById('todoContent').value = '';
+}
+
+// --- 控制折叠 ---
+function toggleOverdueList() {
+    isOverdueExpanded = !isOverdueExpanded;
+    applyOverdueState();
+}
+
+function applyOverdueState() {
+    const cont = document.getElementById('overdueTodoItems');
+    const arrow = document.getElementById('overdueArrow');
+    if (isOverdueExpanded) {
+        cont.classList.remove('hidden');
+        arrow.style.transform = 'rotate(180deg)';
+    } else {
+        cont.classList.add('hidden');
+        arrow.style.transform = 'rotate(0deg)';
+    }
+}
+
+// --- 辅助：确保日历点击时强制切回“今日视图”逻辑（即单日查看模式） ---
+function selectDateFromCalendar(dStr) {
+    selectedDate = dStr;
+    rangeFilter = 'today'; // 点击日历自动进入单日查看模式
+    renderAll();
+}
+
+// --- 统一的任务状态切换逻辑 ---
+function toggleTodo(id, date) {
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+
+    // 确保 date 是准确的字符串格式 (YYYY-MM-DD)
+    if (t.completions.includes(date)) {
+        // 如果已完成，则取消勾选
+        t.completions = t.completions.filter(d => d !== date);
+    } else {
+        // 如果未完成，则加入完成记录
+        t.completions.push(date);
+    }
+    saveDb(); // save 会触发 renderAll() 重新渲染界面
+}
+
+        // --- 项目管理 ---
+       function renderProjects() {
+    const list = document.getElementById('pList'); 
+    list.innerHTML = '';
+    db.forEach((p, i) => {
+        const countdown = getDDLCountdown(p.ddl);
+        const div = document.createElement('div');
+        // 增加 group 类以便控制子元素显示
+        div.className = `p-4 rounded-2xl cursor-pointer transition-all border group relative ${curP===i?'active-p border-transparent shadow-md':'bg-white/40 border-white hover:bg-white/60'}`;
+        div.onclick = () => selectP(i);
+        
+        div.innerHTML = `
+            <div class="flex justify-between items-start">
+                <div class="flex-1 pr-2">
+                    <div class="text-sm font-black text-slate-700 break-all">${p.name}</div>
+                    ${countdown ? `<div class="text-[9px] mt-1 font-bold ${countdown.color}">${countdown.text}</div>` : ''}
+                </div>
+                <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onclick="event.stopPropagation(); editPByIndex(${i})" class="p-1 text-slate-400 hover:text-blue-500 transition-colors">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    </button>
+                    <button onclick="event.stopPropagation(); deletePByIndex(${i})" class="p-1 text-slate-400 hover:text-rose-500 transition-colors">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        list.appendChild(div);
+    });
+}
+
+function renderSubtasks() {
+    const list = document.getElementById('sList'); 
+    if (!list || curP === null) return;
+    list.innerHTML = '';
+
+    const colorThemes = [
+        { bg: 'bg-[#F0F9FF]', border: 'border-blue-100', activeBorder: 'border-blue-400', text: 'text-blue-600', dot: 'bg-blue-400', shadow: 'shadow-blue-100/50' },
+        { bg: 'bg-[#F0FDF4]', border: 'border-green-100', activeBorder: 'border-green-400', text: 'text-green-600', dot: 'bg-green-400', shadow: 'shadow-green-100/50' },
+        { bg: 'bg-[#FFF7ED]', border: 'border-orange-100', activeBorder: 'border-orange-400', text: 'text-orange-600', dot: 'bg-orange-400', shadow: 'shadow-orange-100/50' },
+        { bg: 'bg-[#FAF5FF]', border: 'border-purple-100', activeBorder: 'border-purple-400', text: 'text-purple-600', dot: 'bg-purple-400', shadow: 'shadow-purple-100/50' }
+    ];
+
+    db[curP].subtasks.forEach((s, si) => {
+        const allRelated = todos.filter(t => 
+            t.relatedSubtaskId && String(t.relatedSubtaskId) === String(s.id)
+        );
+        const todayStr = getTodayStr();
+        const unDoneTasks = allRelated.filter(t => !t.completions.includes(todayStr));
+        
+        const theme = colorThemes[si % colorThemes.length];
+        const isSelected = curS === si;
+        const div = document.createElement('div');
+        
+        const baseClass = isSelected 
+            ? `${theme.bg} ${theme.activeBorder} shadow-xl ${theme.shadow} scale-[1.01]` 
+            : `${theme.bg} ${theme.border} hover:scale-[1.005] opacity-90 hover:opacity-100`;
+            
+        div.className = `rounded-[2.2rem] border-2 cursor-pointer transition-all duration-300 group overflow-hidden mb-1 ${baseClass}`;
+        
+        // --- 核心功能：构建里程碑列表 HTML ---
+        let milestonesHtml = '';
+        if (isSelected) {
+            const mList = s.milestones || [];
+            // --- 在 renderSubtasks 函数内部对应的里程碑渲染部分替换为以下代码 ---
+milestonesHtml = `
+    <div class="mb-8">
+        <div class="flex justify-between items-center mb-4">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Milestones</span>
+            <button onclick="event.stopPropagation(); addMilestone(${si})" class="text-[10px] font-bold ${theme.text} hover:opacity-70 transition-opacity">+ 达成里程碑</button>
+        </div>
+        <div class="space-y-3 relative pl-4 border-l border-slate-200/60 ml-1">
+            ${mList.map((m, mi) => `
+                <div class="relative group/m">
+                    <span class="absolute -left-[21px] top-1.5 w-2 h-2 rounded-full ${theme.dot} ring-4 ring-white shadow-sm"></span>
+                    <div class="flex justify-between items-baseline gap-4">
+                        <div class="flex-1">
+                            <span class="text-xs font-bold text-slate-700">${m.text}</span>
+                            <span class="text-[9px] font-mono text-slate-400 bg-white/50 px-1.5 py-0.5 rounded shadow-sm ml-2">${m.date}</span>
+                        </div>
+                        <button onclick="event.stopPropagation(); delMilestone(${si}, ${mi})" class="opacity-0 group-hover/m:opacity-100 text-slate-300 hover:text-rose-500 transition-all text-xs px-1">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            `).join('')}
+            ${mList.length === 0 ? '<p class="text-[10px] text-slate-400 italic">尚未达成里程碑事件</p>' : ''}
+        </div>
+    </div>
+`;
+        }
+
+        // 渲染内嵌任务列表
+        let tasksHtml = '';
+        if (isSelected) {
+            const sortedTasks = [...allRelated].sort((a, b) => b.startDate.localeCompare(a.startDate));
+            tasksHtml = `
+                <div class="px-8 pb-8 pt-2 expand-task-panel cursor-default" onclick="event.stopPropagation()">
+                    <div class="h-px bg-slate-200/50 mb-6"></div>
+                    
+                    ${milestonesHtml}
+
+                    <div class="flex justify-between items-center mb-4">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Tasks</span>
+                        <button onclick="quickAddTodoForS()" class="text-[10px] font-bold ${theme.text} hover:opacity-70 transition-opacity">+ 快速新增待办</button>
+                    </div>
+
+                    <div class="space-y-3">
+                        ${sortedTasks.map(t => {
+                            const isDone = t.completions.includes(todayStr);
+                            const tIdx = todos.indexOf(t);
+                            return `
+                            <div class="p-4 rounded-2xl bg-white/60 border border-white/80 flex justify-between items-center group/item hover:bg-white transition-all shadow-sm">
+                                <div class="flex items-center gap-3">
+                                    <button onclick="event.stopPropagation(); toggleTodo(${t.id}, '${todayStr}')" class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${isDone ? 'bg-green-500 border-green-500' : 'border-slate-300 hover:border-blue-400'}">
+                                        ${isDone ? '<svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>' : ''}
+                                    </button>
+                                    <div>
+                                        <div class="text-xs font-bold ${isDone ? 'text-slate-300 line-through' : 'text-slate-700'}">${t.content}</div>
+                                        <div class="text-[9px] text-slate-400 mt-0.5 font-mono">截止：${t.startDate}</div>
+                                    </div>
+                                </div>
+                                <button onclick="event.stopPropagation(); openEditModal('todo', ${tIdx})" class="opacity-0 group-hover/item:opacity-100 p-2 text-slate-400 hover:text-blue-500 transition-all">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                </button>
+                            </div>`;
+                        }).join('')} 
+                        ${allRelated.length === 0 ? '<p class="text-center py-4 text-[10px] text-slate-400 italic">暂无任务，点击上方新增</p>' : ''}
+                    </div>
+                </div>`;
+        }
+
+        div.innerHTML = `
+            <div class="p-6 flex justify-between items-start" onclick="selectS(${si})">
+                <div class="flex-1 pr-4">
+                    <div class="font-black text-slate-800 text-base flex items-center gap-2 mb-1">
+                        <span class="w-2 h-2 rounded-full ${theme.dot} ${isSelected ? 'animate-pulse' : 'opacity-40'}"></span>
+                        ${s.name}
+                        ${!isSelected && unDoneTasks.length > 0 ? `<span class="ml-2 text-[10px] bg-rose-500 text-white px-2 py-0.5 rounded-full font-bold shadow-sm">${unDoneTasks.length}</span>` : ''}
+                    </div>
+                    <div class="text-[11px] text-slate-400 line-clamp-1 pl-4">${s.goal || '专注达成目标'}</div>
+                </div>
+                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onclick="event.stopPropagation(); openEditModal('subtask', ${si})" class="p-2 text-slate-300 hover:${theme.text}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    </button>
+                    <button onclick="event.stopPropagation(); delS(${si})" class="p-2 text-slate-200 hover:text-rose-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+            ${tasksHtml}
+        `;
+        list.appendChild(div);
+    });
+}
+
+// 辅助函数：添加里程碑逻辑
+function addMilestone(si) {
+    const text = prompt("请输入达成的里程碑事件：");
+    if (!text) return;
+    
+    if (!db[curP].subtasks[si].milestones) {
+        db[curP].subtasks[si].milestones = [];
+    }
+    
+    const now = new Date();
+    const dateStr = `${now.getMonth() + 1}/${now.getDate()}`; // 格式：5/13
+    
+    db[curP].subtasks[si].milestones.push({
+        text: text,
+        date: dateStr
+    });
+    
+    saveDb();
+    renderSubtasks();
+}
+
+function saveDb() {
+    localStorage.setItem('focus_db', JSON.stringify(db));
+}
+
+function selectS(si) {
+    if (curS === si) {
+        curS = null; 
+    } else {
+        curS = si;
+        // 背景联动光晕
+        const themeColors = ['#eff6ff', '#f0fdf4', '#fff7ed', '#faf5ff'];
+        const mainView = document.getElementById('projectMainView');
+        if (mainView) {
+            mainView.style.background = `radial-gradient(circle at center, ${themeColors[si % themeColors.length]} 0%, transparent 85%)`;
+        }
+setTimeout(() => {
+            const list = document.getElementById('sList');
+            const targetCard = list.children[si];
+            if (targetCard) {
+                targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }, 100);
+
+    }
+   // 修改：选中状态改变后立即保存索引
+    saveDb();
+}
+
+// 确保只保留这一个 selectS 函数
+function selectS(si) {
+    // 1. 开关逻辑：如果点击已选中的，则收起；否则选中
+    if (curS === si) {
+        curS = null;
+    } else {
+        curS = si;
+        
+        // 2. 联动感：根据选中的子项目给大容器换色（轻微光晕）
+        const themeColors = ['#eff6ff', '#f0fdf4', '#fff7ed', '#faf5ff', '#fdf2f8', '#f0fdfa'];
+        const activeColor = themeColors[si % themeColors.length];
+        const mainView = document.getElementById('projectMainView');
+        if (mainView) {
+            mainView.style.background = `radial-gradient(circle at center, ${activeColor} 0%, transparent 80%)`;
+        }
+
+        // 3. 自动定位：平滑滚动到当前点击的卡片，提升交互体验
+        // 延时执行确保 DOM 已经渲染
+        setTimeout(() => {
+            const list = document.getElementById('sList');
+            const targetCard = list.children[si];
+            if (targetCard) {
+                targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }, 100);
+    }
+    
+    // 4. 核心：必须调用 renderSubtasks 以触发 HTML 的重新生成（即展开下拉面板）
+    renderSubtasks();
+}
+
+// 修改获取今天日期字符串的逻辑
+function getTodayStr() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+// 修复 filterByRange 函数
+function filterByRange(range) {
+    rangeFilter = range;
+    if (range === 'today') {
+        selectedDate = getTodayStr(); // 使用本地时间获取函数
+        calViewDate = new Date(); 
+    }
+    renderAll();
+}
+
+
+        function selectP(i) {
+            curP = i; curS = null;
+            document.getElementById('pTitle').innerText = db[i].name;
+            document.getElementById('pGoalDesc').innerText = db[i].goal || '专注当下';
+            updatePDDLDisplay(db[i].ddl);
+            document.getElementById('subtaskDetailPanel').classList.add('hidden');
+            switchTab('project');
+            saveDb(); // 保存 curP 的变化
+        }
+
+function quickAddTodoForS() {
+    if (curP === null || curS === null) return;
+    
+    // 先渲染一遍下拉菜单，确保里面有当前主项目的所有子项目选项
+    const selectEl = document.getElementById('todoRelateS');
+    if (selectEl) {
+        selectEl.innerHTML = db[curP].subtasks.map(s => 
+            `<option value="${s.id}">${s.name}</option>`
+        ).join('');
+    }
+
+    const subtask = db[curP].subtasks[curS];
+    openAddTodoModal(); 
+    
+    // 切换类型并选中当前子项目
+    setTodoType('long');
+    if (selectEl) {
+        selectEl.value = subtask.id;
+    }
+}
+
+        // --- 编辑与修改逻辑 ---
+function editP() {
+    if (curP !== null) openEditModal('project', curP);
+}
+
+        // 修改原有的 editS 函数（子项目详情页的编辑）
+function editS() {
+    if (curS !== null) openEditModal('subtask', curS);
+}
+
+function updatePDDLDisplay(ddl) {
+    const el = document.getElementById('pDDLDisplay');
+    if (ddl) {
+        const countdown = getDDLCountdown(ddl);
+        // 在这一行展示图标、日期和倒计时
+        el.innerHTML = `
+            <svg class="w-3 h-3 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span class="text-[10px] font-bold text-rose-600">${ddl}</span>
+            <span class="text-[10px] font-black text-rose-700 ml-1 border-l border-rose-200 pl-2">${countdown.text}</span>
+        `;
+        el.classList.remove('hidden');
+        el.classList.add('flex'); // 确保 flex 布局生效
+    } else {
+        el.classList.add('hidden');
+        el.classList.remove('flex');
+    }
+}        
+
+function addMilestone(subIdx) {
+    const text = prompt("请输入达成的里程碑事件：");
+    if (!text) return;
+    
+    // 初始化数组（防止旧数据没有这个属性）
+    if (!db[curP].subtasks[subIdx].milestones) {
+        db[curP].subtasks[subIdx].milestones = [];
+    }
+    
+    const now = new Date();
+    const dateStr = `${now.getMonth() + 1}/${now.getDate()}`;
+    
+    db[curP].subtasks[subIdx].milestones.push({
+        text: text,
+        date: dateStr
+    });
+    
+    saveDb();
+    renderSubtasks();
+}
+
+// 确保 toggleSubtask 也进行了保存
+function toggleSubtask(sIdx) {
+    db[curP].subtasks[sIdx].completed = !db[curP].subtasks[sIdx].completed;
+    saveDb();
+    renderSubtasks();
+}
+        // --- 弹窗与创建 ---
+// 补充修复：确保“新建项目”时按钮逻辑正确重置
+function openAddPModal() {
+    const titleEl = document.getElementById('pModalTitle');
+    if (titleEl) titleEl.innerText = "启动新项目";
+    
+    // 清空输入框
+    document.getElementById('pNameInput').value = '';
+    document.getElementById('pGoalInput').value = '';
+    document.getElementById('pDDLInput').value = '';
+    
+    document.getElementById('pModal').classList.remove('hidden');
+    
+    // 重新绑定为“新建”逻辑
+    document.getElementById('pModalConfirmBtn').onclick = confirmNewP;
+}
+
+function closePModal() {
+    document.getElementById('pModal').classList.add('hidden');
+}
+        // --- 逻辑：关闭弹窗并重置状态 ---
+        // --- 逻辑：确认创建新项目 ---
+function confirmNewP() {
+    const nameInput = document.getElementById('pNameInput');
+    const name = nameInput.value.trim();
+    
+    // 必填项校验
+    if (!name) {
+        nameInput.classList.add('ring-2', 'ring-rose-400');
+        alert("请至少为您的项目起一个名字吧！");
+        return;
+    }
+
+    const newProject = {
+        id: Date.now(),
+        name: name,
+        goal: document.getElementById('pGoalInput').value.trim() || "暂无具体目标",
+        ddl: document.getElementById('pDDLInput').value,
+        subtasks: []
+    };
+
+    db.push(newProject);
+    saveDb();
+    
+    // 创建成功后自动切换到新项目并关闭弹窗
+    closePModal();
+    selectP(db.length - 1);
+}
+
+        function addS() {
+            const name = prompt("子项目名称:");
+            if(!name) return;
+            db[curP].subtasks.push({
+                id: Date.now(),
+                name: name,
+                goal: prompt("目标 (可选):") || "",
+                ddl: prompt("截止日期 (可选):") || ""
+            });
+            saveDb();
+        }
+
+function setTodoType(type) {
+    currentCreateType = type;
+    const isLong = type === 'long';
+    
+    // 切换按钮样式
+    const tBtn = document.getElementById('typeTempBtn');
+    const lBtn = document.getElementById('typeLongBtn');
+    
+    tBtn.className = !isLong ? "flex-1 py-2 rounded-lg text-[10px] font-bold transition-all bg-white shadow-sm text-blue-600" : "flex-1 py-2 rounded-lg text-[10px] font-bold transition-all text-slate-400";
+    lBtn.className = isLong ? "flex-1 py-2 rounded-lg text-[10px] font-bold transition-all bg-white shadow-sm text-blue-600" : "flex-1 py-2 rounded-lg text-[10px] font-bold transition-all text-slate-400";
+
+    // 显示/隐藏长期任务特有字段
+    const longFields = document.getElementById('longTermFields');
+    if (longFields) {
+        longFields.classList.toggle('hidden', !isLong);
+    }
+}
+
+function openAddTodoModal() {
+    currentEditId = null; // 核心：重置编辑状态，确保是“新增”
+    
+    // 1. 初始化弹窗标题和基础内容
+    document.getElementById('modalTitle').innerText = "设定计划事项";
+    document.getElementById('todoContent').value = '';
+    document.getElementById('todoStartDate').value = getTodayStr(); // 默认今日
+    document.getElementById('todoDeadline').value = '';
+    document.getElementById('todoPri').value = 'p2';
+    
+    // 2. 初始化子项目下拉关联
+    const selectEl = document.getElementById('todoRelateS');
+    if (selectEl) {
+        if (curP !== null && db[curP]) {
+            selectEl.innerHTML = db[curP].subtasks.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+        } else {
+            selectEl.innerHTML = '<option value="">未关联项目</option>';
+        }
+    }
+
+    // 3. 默认切换到临时任务视图
+    setTodoType('temp'); 
+    document.getElementById('todoModal').classList.remove('hidden');
+}
+
+function saveTodo() {
+    const content = document.getElementById('todoContent').value;
+    if(!content) { alert("请输入任务内容"); return; }
+
+    const isLong = currentCreateType === 'long';
+    const startDate = document.getElementById('todoStartDate').value;
+    const deadline = document.getElementById('todoDeadline').value;
+    const pri = document.getElementById('todoPri').value;
+    const relatedSubtaskId = isLong ? document.getElementById('todoRelateS').value : null;
+
+    if (currentEditId !== null) {
+        // 编辑逻辑... (保持您现有的即可)
+        const t = todos.find(x => x.id === currentEditId);
+        if(t) {
+            t.content = content; t.startDate = startDate; t.deadline = deadline; t.pri = pri;
+            if(isLong) {
+                t.endDate = document.getElementById('todoEndDate').value;
+                t.cycle = parseInt(document.getElementById('todoCycle').value) || 1;
+                t.relatedSubtaskId = relatedSubtaskId;
+            }
+        }
+    } else {
+        // --- 核心修复：严谨的新增逻辑 ---
+        const newTodo = {
+            id: Date.now(), // 生成唯一ID
+            content: content,
+            startDate: startDate || getTodayStr(),
+            deadline: deadline || null,
+            endDate: isLong ? document.getElementById('todoEndDate').value : null,
+            cycle: isLong ? (parseInt(document.getElementById('todoCycle').value) || 1) : 0,
+            pri: pri,
+            relatedSubtaskId: relatedSubtaskId,
+            completions: [] // 初始完成记录为空
+        };
+        todos.push(newTodo);
+    }
+
+    saveDb(); // 内部包含 renderAll()
+    closeTodoModal();
+}
+
+function closeTodoModal() {
+    document.getElementById('todoModal').classList.add('hidden');
+    // 关闭时彻底清空
+    document.getElementById('todoContent').value = '';
+}
+        function delTodo(id) { if(confirm("删除任务？")) { todos = todos.filter(t => t.id !== id); save(); } }
+        function delS(si) { if(confirm("删除子项目？")) { db[curP].subtasks.splice(si, 1); save(); } }
+
+        // --- 辅助功能 ---
+        function changeMonth(step) { calViewDate.setMonth(calViewDate.getMonth() + step); renderCalendar(); }
+        function resetToToday() { calViewDate = new Date(); selectedDate = new Date().toISOString().split('T')[0]; renderAll(); }
+        // --- 修复：日历渲染逻辑，解决日期偏移 Bug ---
+function renderCalendar() {
+    const cont = document.getElementById('calendarDays'); cont.innerHTML = '';
+    const y = calViewDate.getFullYear(), m = calViewDate.getMonth();
+    document.getElementById('calMonthDisplay').innerText = `${y}年${m+1}月`;
+    
+    // 获取当月第一天是周几，以及当月最后一天
+    const first = new Date(y, m, 1).getDay();
+    const last = new Date(y, m + 1, 0).getDate();
+    
+    // 填充空白
+    for(let i=0; i<first; i++) cont.appendChild(document.createElement('div'));
+    
+    // 填充日期
+    for(let i=1; i<=last; i++) {
+        // --- 核心修复点：使用本地时间拼接日期字符串，替代 toISOString() ---
+        const monthStr = String(m + 1).padStart(2, '0');
+        const dayStr = String(i).padStart(2, '0');
+        const dStr = `${y}-${monthStr}-${dayStr}`;
+        
+        // 判定：是否有普通任务
+        const hasTask = todos.some(t => t.startDate && isTodoActiveOnDate(t, dStr));
+        // 判定：该日期是否是某任务的 DDL
+        const hasDDL = todos.some(t => t.deadline === dStr);
+        
+// 在 renderCalendar 函数中，确认这一行包含 has-ddl
+        const div = document.createElement('div');
+        div.className = `calendar-day ${selectedDate === dStr ? 'active shadow-lg' : ''} ${hasTask?'has-task':''} ${hasDDL?'has-ddl':''}`;
+        div.innerText = i;
+        
+        // 点击日历时，确保 selectedDate 获得的是正确的本地日期字符串
+        div.onclick = () => { 
+            selectedDate = dStr; 
+            rangeFilter = 'today'; // 切换回今日视图
+            renderAll(); 
+        };
+        cont.appendChild(div);
+    }
+}
+
+let currentDetailHour = null; // 全局变量：记录当前正在编辑的小时
+
+function openTimeDetail(hour) {
+    currentDetailHour = hour;
+    if (typeof ensureScheduleFormat === 'function') {
+        ensureScheduleFormat(selectedDate);
+    }
+    
+    const modalTitle = document.getElementById('detailModalTitle');
+    if (modalTitle) {
+        modalTitle.innerText = `${String(hour).padStart(2, '0')}:00 时段记录`;
+    }
+    
+    renderDetailTasks(); // 渲染弹窗内部的任务列表
+    document.getElementById('timeDetailModal').classList.remove('hidden');
+}
+
+function closeTimeDetailModal() {
+    const modal = document.getElementById('timeDetailModal');
+    if (modal) modal.classList.add('hidden');
+    currentDetailHour = null;
+}
+
+// 弹窗内的任务列表渲染
+function renderDetailTasks() {
+    const listCont = document.getElementById('detailTasksList');
+    if (!listCont) return;
+    
+    const tasks = schedules[selectedDate][currentDetailHour] || [];
+    
+    if (tasks.length === 0) {
+        listCont.innerHTML = `<div class="text-center py-8 text-slate-300 text-xs italic">暂无记录，点击下方按钮开始...</div>`;
+        return;
+    }
+
+    listCont.innerHTML = tasks.map((t, index) => `
+        <div class="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+            <input type="text" 
+                   class="flex-1 bg-transparent border-none outline-none text-sm font-medium text-slate-600" 
+                   placeholder="做了什么？" 
+                   value="${t.text || ''}" 
+                   onchange="updateDetailData(${index}, 'text', this.value)">
+            <input type="number" 
+                   class="w-12 bg-white rounded-lg text-center py-1 text-xs font-bold text-indigo-600 outline-none shadow-sm" 
+                   placeholder="min" 
+                   value="${t.minutes || ''}" 
+                   onchange="updateDetailData(${index}, 'minutes', this.value)">
+            <button onclick="removeDetailTask(${index})" class="text-rose-300 hover:text-rose-500 p-1">×</button>
+        </div>
+    `).join('');
+}
+
+// 详情弹窗配套函数
+function updateDetailData(index, field, value) {
+    schedules[selectedDate][currentDetailHour][index][field] = value;
+}
+
+function addDetailTask() {
+    schedules[selectedDate][currentDetailHour].push({ text: "", minutes: "" });
+    renderDetailTasks();
+}
+
+function removeDetailTask(index) {
+    schedules[selectedDate][currentDetailHour].splice(index, 1);
+    renderDetailTasks();
+}
+
+function saveAndCloseDetail() {
+    saveSchedules(); // 保存到 localStorage
+    renderSchedule(); // 刷新主界面格子
+    closeTimeDetailModal();
+}
+
+
+function renderAll() {
+    renderProjects();
+    renderSubtasks();
+    renderTodoItems();
+    renderCalendar();
+    renderGrowthOverview(); 
+    renderSchedule(); // 新增：渲染时间轴
+}
+setInterval(() => { document.getElementById('clock').innerText = new Date().toLocaleString(); }, 1000);
+        renderAll();
+
+// 确保函数在全局 window 对象下
+window.openTimeDetail = function(hour) {
+    console.log("准备打开弹窗，小时：", hour);
+    currentDetailHour = hour;
+    
+    const modal = document.getElementById('timeDetailModal');
+    if (!modal) {
+        console.error("找不到 ID 为 timeDetailModal 的弹窗元素！");
+        return;
+    }
+
+    // 格式化数据
+    if (typeof ensureScheduleFormat === 'function') {
+        ensureScheduleFormat(selectedDate);
+    }
+
+    // 更新标题
+    const title = document.getElementById('detailModalTitle');
+    if (title) title.innerText = `${String(hour).padStart(2, '0')}:00 时段记录`;
+
+    // 渲染内部列表
+    renderDetailTasks();
+
+    // 显示弹窗：移除 hidden 强制显示
+    modal.classList.remove('hidden');
+    console.log("弹窗 classList 现在是:", modal.className);
+};
+
+// 同时也把关闭函数挂载上去
+window.closeTimeDetailModal = function() {
+    document.getElementById('timeDetailModal').classList.add('hidden');
+};
+
+
+// 删除里程碑函数
+window.delMilestone = function(subIdx, milestoneIdx) {
+    if (!confirm("确定要删除这条里程碑记录吗？")) return;
+
+    // 定位到具体的子项目里程碑数组
+    const subtask = db[curP].subtasks[subIdx];
+    if (subtask && subtask.milestones) {
+        subtask.milestones.splice(milestoneIdx, 1);
+        
+        // 持久化并刷新界面
+        saveDb();
+        renderSubtasks();
+        console.log("里程碑已移除");
+    }
+};
+
+// 同时也建议统一一下 addMilestone，确保使用 saveDb()
+window.addMilestone = function(si) {
+    const text = prompt("🎉 记录一个小成就（里程碑）：");
+    if (!text || text.trim() === "") return;
+    
+    if (!db[curP].subtasks[si].milestones) {
+        db[curP].subtasks[si].milestones = [];
+    }
+    
+    const now = new Date();
+    const dateStr = `${now.getMonth() + 1}/${now.getDate()}`;
+    
+    db[curP].subtasks[si].milestones.push({
+        text: text.trim(),
+        date: dateStr
+    });
+    
+    saveDb(); // 统一调用 saveDb
+    renderSubtasks();
+};
+
+ </script>
+
+<div id="timeDetailModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[9999] hidden flex items-center justify-center p-4" style="display: none;">
+    <div class="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h2 id="detailModalTitle" class="text-xl font-black text-slate-800">时段记录</h2>
+                <p class="text-[10px] text-slate-400 mt-1">记录碎片任务与时长</p>
+            </div>
+            <button onclick="closeTimeDetailModal()" class="text-slate-400 hover:text-slate-600 p-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div id="detailTasksList" class="space-y-4 max-h-[50vh] overflow-y-auto mb-6 pr-2">
+            </div>
+        <div class="flex gap-3">
+            <button onclick="addDetailTask()" class="flex-1 py-3 rounded-2xl bg-indigo-50 text-indigo-600 font-bold text-xs hover:bg-indigo-100 transition-all">+ 新增任务</button>
+            <button onclick="saveAndCloseDetail()" class="flex-1 py-3 rounded-2xl bg-indigo-500 text-white font-bold text-xs hover:shadow-lg transition-all">保存关闭</button>
+        </div>
+    </div>
+</div>
+</body>
+</html>
