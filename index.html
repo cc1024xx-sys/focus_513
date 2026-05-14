@@ -862,7 +862,7 @@ function deletePByIndex(index) {
 }
         // --- 核心优化：删除当前主项目 ---
 function deleteCurrentProject() {
-    if (curP === null) deletePByIndex(curP);
+    if (curP === null) return;
     
     const projectName = db[curP].name;
     
@@ -1154,7 +1154,10 @@ function toggleTodo(id, date) {
 
 function renderSubtasks() {
     const list = document.getElementById('sList'); 
-    if (!list || curP === null) return;
+        if (!list || curP === null || !db[curP]) {
+        return;
+    }
+
     list.innerHTML = '';
 
     const colorThemes = [
@@ -1299,9 +1302,6 @@ function addMilestone(si) {
     renderSubtasks();
 }
 
-function saveDb() {
-    localStorage.setItem('focus_db', JSON.stringify(db));
-}
 
 function selectS(si) {
     if (curS === si) {
@@ -1377,16 +1377,26 @@ function filterByRange(range) {
     renderAll();
 }
 
+function selectP(i) {
+    curP = i;
+    curS = null;
 
-        function selectP(i) {
-            curP = i; curS = null;
-            document.getElementById('pTitle').innerText = db[i].name;
-            document.getElementById('pGoalDesc').innerText = db[i].goal || '专注当下';
-            updatePDDLDisplay(db[i].ddl);
-            document.getElementById('subtaskDetailPanel').classList.add('hidden');
-            switchTab('project');
-            saveDb(); // 保存 curP 的变化
-        }
+    document.getElementById('pTitle').innerText = db[i].name;
+    document.getElementById('pGoalDesc').innerText = db[i].goal || '专注当下';
+
+    updatePDDLDisplay(db[i].ddl);
+
+    document.getElementById('subtaskDetailPanel').classList.add('hidden');
+
+    switchTab('project');
+
+    // 只保存索引，不 render
+    localStorage.setItem('ff_v3_curP', curP);
+    localStorage.setItem('ff_v3_curS', curS);
+
+    renderSubtasks();
+}
+
 
 function quickAddTodoForS() {
     if (curP === null || curS === null) return;
